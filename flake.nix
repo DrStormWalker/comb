@@ -29,14 +29,12 @@
         ];
       };
 
-      rustToolchain = pkgs.rust-bin.stable.latest.default;
+      rustToolchain = pkgs.rust-bin.nightly.latest.default;
 
       craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
 
       comb = craneLib.buildPackage {
         src = craneLib.cleanCargoSource ./.;
-
-        cargoExtraArgs = "--target thumbv6m-none-eabi";
 
         doCheck = false;
 
@@ -53,15 +51,16 @@
 
       packages.default = comb;
 
-      devShells.default = pkgs.buildEnv {
+      devShells.default = pkgs.mkShell {
         inputsFrom = builtins.attrValues self.checks;
 
         nativeBuildInputs = with pkgs; [
           rustToolchain
 
+          rust-analyzer
           clippy
           rustfmt
-          rust-analyzer
+          cargo-expand
         ];
       };
     }
