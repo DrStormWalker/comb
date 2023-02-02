@@ -50,6 +50,7 @@
       };
 
       packages.default = comb;
+      packages.comb = comb;
 
       devShells.default = pkgs.mkShell {
         inputsFrom = builtins.attrValues self.checks;
