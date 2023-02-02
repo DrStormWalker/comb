@@ -43,10 +43,10 @@ Install via flakes:
 
 ```sh
 nix build "github:DrStormWalker/comb#comb"
-./result/bin.comb
+./result/bin/comb
 ```
 
-## Build Requirements
+### Requirements
 
 - A Rust nightly toolchain
 
