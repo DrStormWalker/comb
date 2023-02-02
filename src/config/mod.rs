@@ -1,11 +1,15 @@
-use std::path::{Path, PathBuf};
+mod monitor;
+
+pub use monitor::watch;
+
+use std::{
+    fs::File,
+    io::{self, Read},
+    path::{Path, PathBuf},
+};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tokio::{
-    fs::File,
-    io::{self, AsyncReadExt},
-};
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Config {
@@ -77,16 +81,16 @@ pub enum Error {
     TomlError(#[from] toml::de::Error),
 }
 
-pub async fn load_config_from_path(p: impl AsRef<Path>) -> Result<Config, Error> {
-    let mut f = File::open(p).await?;
+pub fn load_config_from_path(p: impl AsRef<Path>) -> Result<Config, Error> {
+    let mut f = File::open(p)?;
 
-    load_config_from_file(&mut f).await
+    load_config_from_file(&mut f)
 }
 
-pub async fn load_config_from_file(f: &mut File) -> Result<Config, Error> {
+pub fn load_config_from_file(f: &mut File) -> Result<Config, Error> {
     let mut s = String::new();
 
-    f.read_to_string(&mut s).await?;
+    f.read_to_string(&mut s)?;
 
     load_config_from_str(&s)
 }
