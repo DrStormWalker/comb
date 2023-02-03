@@ -1,102 +1,101 @@
+mod device;
 mod monitor;
-
-pub use monitor::watch;
 
 use std::{
     fs::File,
-    io::{self, Read},
+    io::Read,
     path::{Path, PathBuf},
 };
 
+pub use monitor::watch;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
+use xdg::BaseDirectoriesError;
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+use self::device::Device;
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default)]
-    pub imports: Option<Vec<PathBuf>>,
-
-    #[serde(default)]
-    pub errors: Errors,
-
-    #[serde(default)]
-    pub devices: Vec<Device>,
+    devices: Vec<Device>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Device {
-    #[serde(flatten)]
-    pub accessor: DeviceAccessor,
-
-    pub alias: Option<Alias>,
-
-    #[serde(rename = "virtual", skip_serializing_if = "skip_bool_if_false")]
-    pub is_virtual: bool,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum Alias {
-    Single(String),
-    Multiple(Vec<String>),
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DeviceAccessor {
-    Path(PathBuf),
-    Name(String),
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ErrorType {
-    Error,
-    Warning,
-    Ignore,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Errors {
-    unsupported_option: ErrorType,
-}
-impl Default for Errors {
-    fn default() -> Self {
-        Self {
-            unsupported_option: ErrorType::Error,
-        }
-    }
-}
-
-fn skip_bool_if_false(b: &bool) -> bool {
-    !b
-}
-
-#[derive(Debug, Error)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error(transparent)]
-    IoError(#[from] io::Error),
+    IoError(#[from] std::io::Error),
+
+    #[error(transparent)]
+    BaseDirectoriesError(#[from] BaseDirectoriesError),
 
     #[error(transparent)]
     TomlError(#[from] toml::de::Error),
 }
 
-pub fn load_config_from_path(p: impl AsRef<Path>) -> Result<Config, Error> {
-    let mut f = File::open(p)?;
+pub type Result<T> = std::result::Result<T, Error>;
 
-    load_config_from_file(&mut f)
+pub fn load() -> Result<(PathBuf, Config)> {
+    let Some(config_path) = get_config_file_path()? else {
+        panic!("Unable to load config file");
+    };
+
+    let mut config_file = File::open(&config_path)?;
+
+    let mut config = String::new();
+
+    config_file.read_to_string(&mut config)?;
+
+    let config = toml::from_str(&config)?;
+
+    Ok((config_path, config))
 }
 
-pub fn load_config_from_file(f: &mut File) -> Result<Config, Error> {
-    let mut s = String::new();
+pub fn reload(config_path: impl AsRef<Path>) -> Result<Config> {
+    let mut config_file = File::open(config_path)?;
 
-    f.read_to_string(&mut s)?;
+    let mut config = String::new();
 
-    load_config_from_str(&s)
-}
+    config_file.read_to_string(&mut config)?;
 
-pub fn load_config_from_str(s: &str) -> Result<Config, Error> {
-    let config: Config = toml::from_str(s)?;
+    let config = toml::from_str(&config)?;
 
     Ok(config)
+}
+
+fn get_config_file_path() -> Result<Option<PathBuf>> {
+    xdg::BaseDirectories::with_prefix("comb")
+        .ok()
+        .and_then(|xdg| xdg.find_config_file("config.toml").map(|file| Ok(file)))
+        .or_else(|| loop {
+            println!("Unable to find config file. Would you like to have one created? [y/n]");
+
+            let mut answer = String::new();
+
+            if let Err(err) = std::io::stdin().read_line(&mut answer) {
+                break Some(Err(err.into()));
+            }
+
+            match &answer.trim().to_lowercase()[..] {
+                "y" | "yes" => break Some(create_config_file()),
+                "n" | "no" => break None,
+                _ => {}
+            }
+        })
+        .transpose()
+}
+
+fn create_config_file() -> Result<PathBuf> {
+    xdg::BaseDirectories::with_prefix("comb")
+        .map_err(|err| err.into())
+        .and_then(|xdg| {
+            let config_path = xdg.place_config_file("config.toml")?;
+
+            Ok(config_path)
+        })
+        .and_then(|config_path| {
+            // File::create_new is unstable
+            // (issue #105135 https://github.com/rust-lang/rust/issues/105135)
+            File::create_new(&config_path)?;
+
+            Ok(config_path)
+        })
 }

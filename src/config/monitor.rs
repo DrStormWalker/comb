@@ -1,56 +1,60 @@
-use std::{path::Path, time::Duration};
+use std::{path::Path, sync::mpsc, thread::JoinHandle, time::Duration};
 
 use notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::{DebounceEventResult, Debouncer as RawDebouncer};
-use tokio::{runtime::Handle, sync::mpsc, task::JoinHandle};
+
+use crate::{
+    events::{Event, EventPipelineSender},
+    thread,
+};
 
 type Debouncer = RawDebouncer<RecommendedWatcher>;
 
 fn new_debouncer(
     timeout: Duration,
     tick_rate: Option<Duration>,
-    handle: Handle,
 ) -> Result<(Debouncer, mpsc::Receiver<DebounceEventResult>), notify::Error> {
-    let (tx, rx) = mpsc::channel(1);
+    let (tx, rx) = mpsc::channel();
 
-    let debouncer = notify_debouncer_mini::new_debouncer(timeout, tick_rate, move |events| {
-        handle.block_on(async {
-            let _ = tx.send(events).await;
-        });
-    })?;
+    let debouncer = notify_debouncer_mini::new_debouncer(timeout, tick_rate, tx)?;
 
     Ok((debouncer, rx))
 }
 
-pub fn watch(config_path: impl AsRef<Path>) -> Result<JoinHandle<()>, notify::Error> {
+pub fn watch(
+    event_pipeline: EventPipelineSender,
+    config_path: impl AsRef<Path>,
+) -> Result<JoinHandle<()>, notify::Error> {
     let config_path = config_path.as_ref().to_path_buf();
 
-    let handle = Handle::current();
+    let (mut debouncer, mut rx) = new_debouncer(Duration::from_secs(1), None)?;
 
-    let (mut debouncer, mut rx) = new_debouncer(Duration::from_secs(1), None, handle)?;
-
-    let config_watch_handle = tokio::spawn(async move {
+    let config_watch_handle = thread::spawn_named("config watcher", move || {
         debouncer
             .watcher()
             .watch(&config_path, RecursiveMode::NonRecursive)
             .unwrap();
 
         loop {
-            let events = match rx.recv().await {
-                Some(Ok(events)) => events,
-                Some(Err(err)) => {
+            let events = match rx.recv() {
+                Ok(Ok(events)) => events,
+                Ok(Err(err)) => {
                     println!("Config watcher error: {:?}", err);
                     continue;
                 }
-                None => {
-                    println!("Config watcher channel dropped");
+                Err(err) => {
+                    println!("Config watcher channel dropped: {:?}", err);
                     break;
                 }
             };
 
             if events.iter().any(|e| e.path == config_path) {
-                // TODO: Reload config file
-                println!("Reload config file");
+                if event_pipeline
+                    .send(Event::ConfigWatchEvent(config_path.clone()))
+                    .is_err()
+                {
+                    break;
+                }
             }
         }
     });

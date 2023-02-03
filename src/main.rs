@@ -2,28 +2,48 @@
 
 mod config;
 mod device;
+mod events;
 mod thread;
 
-use std::fs::File;
-
-use tokio::{join, runtime};
+use events::{event_pipeline, Event};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let xdg_dirs = xdg::BaseDirectories::with_prefix("comb")?;
-    let config_path = xdg_dirs.place_config_file("config.toml")?;
+    let (config_path, mut config) = match config::load() {
+        Ok(result) => result,
+        Err(err) => {
+            println!("{}", err);
+            panic!();
+        }
+    };
 
-    let _ = File::create_new(&config_path);
+    let (event_pipeline_sender, event_pipeline_receiver) = event_pipeline();
 
-    let rt = runtime::Runtime::new()?;
+    let config_watch_handle = config::watch(event_pipeline_sender.clone(), config_path)?;
+    let device_watch_handle = device::watch(event_pipeline_sender.clone())?;
 
-    rt.block_on(async {
-        let config_watch_handle = config::watch(config_path)?;
-        let device_watch_handle = device::watch()?;
+    let mut event_watch_handle =
+        device::watch_input_events(evdev::enumerate().map(|(_, dev)| dev).collect())?;
 
-        let _ = join!(config_watch_handle, device_watch_handle);
+    while let Ok(event) = event_pipeline_receiver.recv() {
+        match event {
+            Event::DeviceWatchEvent { added, removed } => {
+                println!("Added devices: {:?}. Removed devices: {:?}", added, removed);
 
-        Result::<(), notify::Error>::Ok(())
-    })?;
+                drop(event_watch_handle);
+
+                event_watch_handle =
+                    device::watch_input_events(evdev::enumerate().map(|(_, dev)| dev).collect())?;
+            }
+            Event::ConfigWatchEvent(config_path) => {
+                config = config::reload(config_path).unwrap();
+
+                println!("Config file reload.\nNew config:\n{:#?}", config);
+            }
+        }
+    }
+
+    let _ = config_watch_handle.join();
+    let _ = device_watch_handle.join();
 
     Ok(())
 }

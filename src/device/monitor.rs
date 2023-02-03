@@ -1,28 +1,23 @@
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
+    sync::mpsc,
+    thread::JoinHandle,
 };
 
 use notify::{EventKind, RecommendedWatcher, Watcher};
-use tokio::{runtime::Handle, sync::mpsc, task::JoinHandle};
 
-use crate::thread;
+use crate::{
+    events::{Event, EventPipelineSender},
+    thread,
+};
 
 type EventResult = Result<notify::Event, notify::Error>;
 
-fn new_watcher(
-    handle: Handle,
-) -> Result<(RecommendedWatcher, mpsc::Receiver<EventResult>), notify::Error> {
-    let (tx, rx) = mpsc::channel(1);
+fn new_watcher() -> Result<(RecommendedWatcher, mpsc::Receiver<EventResult>), notify::Error> {
+    let (tx, rx) = mpsc::channel();
 
-    let watcher = RecommendedWatcher::new(
-        move |event| {
-            handle.block_on(async {
-                let _ = tx.send(event).await;
-            })
-        },
-        notify::Config::default(),
-    )?;
+    let watcher = RecommendedWatcher::new(tx, notify::Config::default())?;
 
     Ok((watcher, rx))
 }
@@ -50,14 +45,12 @@ fn populate_devices(devices: &mut HashSet<PathBuf>) -> (Vec<PathBuf>, Vec<PathBu
     (new_devices, removed_devices)
 }
 
-pub fn watch() -> Result<JoinHandle<()>, notify::Error> {
+pub fn watch(event_pipeline: EventPipelineSender) -> Result<JoinHandle<()>, notify::Error> {
     let dev_path = Path::new("/dev/input");
 
-    let handle = Handle::current();
+    let (mut watcher, mut rx) = new_watcher()?;
 
-    let (mut watcher, mut rx) = new_watcher(handle)?;
-
-    let device_watch_handle = tokio::spawn(async move {
+    let device_watch_handle = thread::spawn_named("device watcher", move || {
         watcher
             .watch(dev_path, notify::RecursiveMode::NonRecursive)
             .unwrap();
@@ -67,26 +60,31 @@ pub fn watch() -> Result<JoinHandle<()>, notify::Error> {
         let _ = populate_devices(&mut devices);
 
         loop {
-            match rx.recv().await {
-                Some(Ok(notify::Event {
+            match rx.recv() {
+                Ok(Ok(notify::Event {
                     kind: EventKind::Create(_) | EventKind::Remove(_),
                     paths: _,
                     attrs: _,
                 })) => {}
-                Some(Ok(_)) => continue,
-                Some(Err(err)) => {
+                Ok(Ok(_)) => continue,
+                Ok(Err(err)) => {
                     println!("Input device watcher error: {:?}", err);
                     continue;
                 }
-                None => {
-                    println!("Input device watcher channel dropped");
+                Err(err) => {
+                    println!("Input device watcher channel dropped: {:?}", err);
                     break;
                 }
             };
 
             let (added, removed) = populate_devices(&mut devices);
 
-            println!("Added devices: {:?}. Removed devices: {:?}", added, removed);
+            if event_pipeline
+                .send(Event::DeviceWatchEvent { added, removed })
+                .is_err()
+            {
+                break;
+            }
         }
     });
 
