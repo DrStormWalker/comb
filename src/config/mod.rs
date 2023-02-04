@@ -13,7 +13,7 @@ use xdg::BaseDirectoriesError;
 
 use self::device::Device;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
     devices: Vec<Device>,
@@ -26,16 +26,20 @@ pub enum Error {
 
     #[error(transparent)]
     BaseDirectoriesError(#[from] BaseDirectoriesError),
-
-    #[error(transparent)]
-    TomlError(#[from] toml::de::Error),
+    // #[error(transparent)]
+    // TomlError(#[from] toml::de::Error),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
 
 pub fn load() -> Result<(PathBuf, Config)> {
-    let Some(config_path) = get_config_file_path()? else {
-        panic!("Unable to load config file");
+    let config_path = match get_config_file_path()? {
+        Some(config_path) => config_path,
+        None => {
+            println!("Unable to find config file. Generating default.");
+
+            create_config_file()?
+        }
     };
 
     let mut config_file = File::open(&config_path)?;
@@ -44,42 +48,40 @@ pub fn load() -> Result<(PathBuf, Config)> {
 
     config_file.read_to_string(&mut config)?;
 
-    let config = toml::from_str(&config)?;
+    let config = toml::from_str(&config).unwrap_or_else(|err| {
+        println!("Failed to load config file. Using default");
+        println!("{}", err);
+
+        Config::default()
+    });
 
     Ok((config_path, config))
 }
 
-pub fn reload(config_path: impl AsRef<Path>) -> Result<Config> {
+pub fn reload(config_path: impl AsRef<Path>) -> Result<Option<Config>> {
     let mut config_file = File::open(config_path)?;
 
     let mut config = String::new();
 
     config_file.read_to_string(&mut config)?;
 
-    let config = toml::from_str(&config)?;
+    let config = match toml::from_str(&config) {
+        Ok(config) => config,
+        Err(err) => {
+            println!("Failed to load config file, using previous version.");
+            println!("{}", err);
 
-    Ok(config)
+            return Ok(None);
+        }
+    };
+
+    Ok(Some(config))
 }
 
 fn get_config_file_path() -> Result<Option<PathBuf>> {
     xdg::BaseDirectories::with_prefix("comb")
         .ok()
         .and_then(|xdg| xdg.find_config_file("config.toml").map(|file| Ok(file)))
-        .or_else(|| loop {
-            println!("Unable to find config file. Would you like to have one created? [y/n]");
-
-            let mut answer = String::new();
-
-            if let Err(err) = std::io::stdin().read_line(&mut answer) {
-                break Some(Err(err.into()));
-            }
-
-            match &answer.trim().to_lowercase()[..] {
-                "y" | "yes" => break Some(create_config_file()),
-                "n" | "no" => break None,
-                _ => {}
-            }
-        })
         .transpose()
 }
 

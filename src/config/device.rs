@@ -11,6 +11,7 @@ pub struct Device {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Accessor {
+    #[serde(skip_deserializing)]
     Name(String),
     Path(PathBuf),
 }
