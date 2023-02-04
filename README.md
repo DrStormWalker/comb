@@ -18,6 +18,7 @@ access to the evdev devices.
 - [ ] Button/Keyboard key inputs
   - [ ] Map to virtual device input
   - [ ] Run script
+  - [ ] Modifier keys
 - [ ] Joystick inputs
   - [ ] Map to different joystick
   - [ ] Interpret as keypress
