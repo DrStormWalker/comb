@@ -1,67 +1,119 @@
-use std::{io, path::PathBuf, sync::atomic::AtomicBool};
+use std::{io, sync::Arc, thread::JoinHandle};
 
 use evdev::{Device, MiscType};
-use tokio::runtime;
-use tokio_stream::{StreamExt, StreamMap};
+use tokio::{
+    runtime::{self, Runtime},
+    sync::Mutex,
+};
+use tokio_stream::{Stream, StreamExt, StreamMap};
 
 use crate::{
     device::{DeviceEvent, InputEvent},
     events::{Event, EventPipelineSender},
-    thread::{self, StoppableJoinHandle},
+    thread,
 };
 
-pub fn watch(
-    event_pipeline: EventPipelineSender,
-    devices: Vec<Device>,
-) -> Result<StoppableJoinHandle<()>, io::Error> {
-    let rt = runtime::Builder::new_current_thread().enable_io().build()?;
+struct EventStream {
+    raw_event_stream: evdev::EventStream,
+}
+impl EventStream {
+    pub fn from_raw(raw_event_stream: evdev::EventStream) -> Self {
+        Self { raw_event_stream }
+    }
+}
+impl Stream for EventStream {
+    type Item = InputEvent;
 
-    let event_watch_handle =
-        thread::spawn_named_stoppable("device event watcher", move |stopped| {
-            rt.block_on(async move { watch_input_events(event_pipeline, devices, stopped).await });
-        });
-
-    Ok(event_watch_handle)
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        self.raw_event_stream
+            .poll_event(cx)
+            .map(|event| event.ok().map(|event| InputEvent::from_raw(event)))
+    }
 }
 
-async fn watch_input_events(
-    event_pipeline: EventPipelineSender,
-    devices: Vec<Device>,
-    stopped: &AtomicBool,
-) {
-    let mut stream_map = StreamMap::new();
+type DeviceEventStreamMap = StreamMap<String, EventStream>;
 
-    for device in devices {
-        let path = device.physical_path().unwrap().to_string();
-        let stream = device
-            .into_event_stream()
-            .unwrap()
-            .map_while(|event| event.ok())
-            .map(|event| InputEvent::from_raw(event));
+pub struct DeviceEventWatcher {
+    device_event_streams: Arc<Mutex<DeviceEventStreamMap>>,
+    thread_handle: JoinHandle<()>,
+    runtime: Arc<Runtime>,
+}
+impl DeviceEventWatcher {
+    pub fn new(event_pipeline: EventPipelineSender) -> io::Result<Self> {
+        let runtime = Arc::new(runtime::Builder::new_current_thread().enable_io().build()?);
 
-        stream_map.insert(path, stream);
+        let device_event_streams = Arc::new(Mutex::new(StreamMap::new()));
+
+        let thread_handle = {
+            let device_event_streams = device_event_streams.clone();
+            let runtime = runtime.clone();
+
+            thread::spawn_named("device event watcher", move || {
+                runtime.block_on(async move {
+                    Self::watch_input_events(event_pipeline, device_event_streams).await
+                });
+            })
+        };
+
+        Ok(Self {
+            device_event_streams,
+            thread_handle,
+            runtime,
+        })
     }
 
-    use std::sync::atomic::Ordering;
+    pub fn join(self) -> std::thread::Result<()> {
+        self.thread_handle.join()
+    }
 
-    let mut stream_map = stream_map.map(|(path, event)| DeviceEvent::new(path, event));
+    pub fn watch(&self, devices: Vec<Device>) {
+        self.runtime.block_on(async {
+            let mut device_event_streams = self.device_event_streams.lock().await;
 
-    while let Some(event) = stream_map.next().await {
-        // Temporary implementation as feature let_chains are unstable
-        // (issue #53667 https://github.com/rust-lang/rust/issues/53667)
-        if stopped.load(Ordering::Relaxed) {
-            break;
+            for device in devices {
+                let path = device.physical_path().unwrap().to_string();
+                // `device.into_event_stream` must be called from a tokio runtime
+                let event_stream = EventStream::from_raw(device.into_event_stream().unwrap());
+
+                device_event_streams.insert(path, event_stream);
+            }
+        })
+    }
+
+    pub fn unwatch(&self, devices: Vec<Device>) {
+        let mut device_event_streams = self.device_event_streams.blocking_lock();
+
+        for device in devices {
+            let path = device.physical_path().unwrap();
+
+            device_event_streams.remove(path);
         }
+    }
 
-        use evdev::InputEventKind::*;
+    async fn watch_input_events(
+        event_pipeline: EventPipelineSender,
+        device_event_streams: Arc<Mutex<DeviceEventStreamMap>>,
+    ) {
+        loop {
+            let Some((id, event)) = device_event_streams.lock().await.next().await else {
+                continue;
+            };
 
-        match event.kind() {
-            Synchronization(_) | Misc(MiscType::MSC_SCAN) => continue,
-            _ => {}
-        }
+            let event = DeviceEvent::new(id, event);
 
-        if event_pipeline.send(Event::DeviceEvent(event)).is_err() {
-            break;
+            use evdev::InputEventKind::*;
+
+            match event.kind() {
+                Synchronization(_) | Misc(MiscType::MSC_SCAN) => continue,
+                _ => {}
+            }
+
+            if event_pipeline.send(Event::DeviceEvent(event)).is_err() {
+                break;
+            }
         }
     }
 }
