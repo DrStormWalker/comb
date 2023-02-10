@@ -1,6 +1,7 @@
-use std::{io, sync::Arc, thread::JoinHandle};
+use std::{io, os::fd::AsRawFd, sync::Arc, thread::JoinHandle};
 
 use evdev::{Device, MiscType};
+use mio::{unix::SourceFd, Events, Interest, Poll, Token};
 use tokio::{
     runtime::{self, Runtime},
     sync::Mutex,
@@ -10,7 +11,7 @@ use tokio_stream::{Stream, StreamExt, StreamMap};
 use crate::{
     device::{DeviceEvent, InputEvent},
     events::{Event, EventPipelineSender},
-    thread,
+    mio_channel, thread,
 };
 
 struct EventStream {
@@ -36,32 +37,26 @@ impl Stream for EventStream {
 
 type DeviceEventStreamMap = StreamMap<String, EventStream>;
 
+enum DeviceUpdate {
+    Add(Device),
+    Remove(Device),
+}
+
 pub struct DeviceEventWatcher {
-    device_event_streams: Arc<Mutex<DeviceEventStreamMap>>,
     thread_handle: JoinHandle<()>,
-    runtime: Arc<Runtime>,
+    device_update_channel: mio_channel::Sender<DeviceUpdate>,
 }
 impl DeviceEventWatcher {
     pub fn new(event_pipeline: EventPipelineSender) -> io::Result<Self> {
-        let runtime = Arc::new(runtime::Builder::new_current_thread().enable_io().build()?);
+        let (tx, rx) = mio_channel::channel();
 
-        let device_event_streams = Arc::new(Mutex::new(StreamMap::new()));
-
-        let thread_handle = {
-            let device_event_streams = device_event_streams.clone();
-            let runtime = runtime.clone();
-
-            thread::spawn_named("device event watcher", move || {
-                runtime.block_on(async move {
-                    Self::watch_input_events(event_pipeline, device_event_streams).await
-                });
-            })
-        };
+        let thread_handle = thread::spawn_named("device event watcher", move || {
+            Self::watch_input_events(rx, event_pipeline)
+        });
 
         Ok(Self {
-            device_event_streams,
             thread_handle,
-            runtime,
+            device_update_channel: tx,
         })
     }
 
@@ -70,49 +65,104 @@ impl DeviceEventWatcher {
     }
 
     pub fn watch(&self, devices: Vec<Device>) {
-        self.runtime.block_on(async {
-            let mut device_event_streams = self.device_event_streams.lock().await;
-
-            for device in devices {
-                let path = device.physical_path().unwrap().to_string();
-                // `device.into_event_stream` must be called from a tokio runtime
-                let event_stream = EventStream::from_raw(device.into_event_stream().unwrap());
-
-                device_event_streams.insert(path, event_stream);
-            }
-        })
-    }
-
-    pub fn unwatch(&self, devices: Vec<Device>) {
-        let mut device_event_streams = self.device_event_streams.blocking_lock();
-
         for device in devices {
-            let path = device.physical_path().unwrap();
-
-            device_event_streams.remove(path);
+            let _ = self.device_update_channel.send(DeviceUpdate::Add(device));
         }
     }
 
-    async fn watch_input_events(
+    pub fn unwatch(&self, devices: Vec<Device>) {
+        for device in devices {
+            let _ = self
+                .device_update_channel
+                .send(DeviceUpdate::Remove(device));
+        }
+    }
+
+    fn watch_input_events(
+        mut device_update_channel: mio_channel::Receiver<DeviceUpdate>,
         event_pipeline: EventPipelineSender,
-        device_event_streams: Arc<Mutex<DeviceEventStreamMap>>,
     ) {
-        loop {
-            let Some((id, event)) = device_event_streams.lock().await.next().await else {
-                continue;
-            };
+        let poll = Poll::new().unwrap();
 
-            let event = DeviceEvent::new(id, event);
+        let events = Events::with_capacity(128);
 
-            use evdev::InputEventKind::*;
+        const UPDATE_CHANNEL: Token = Token(0);
 
-            match event.kind() {
-                Synchronization(_) | Misc(MiscType::MSC_SCAN) => continue,
-                _ => {}
-            }
+        poll.registry()
+            .register(
+                &mut device_update_channel,
+                UPDATE_CHANNEL,
+                Interest::WRITABLE,
+            )
+            .unwrap();
 
-            if event_pipeline.send(Event::DeviceEvent(event)).is_err() {
-                break;
+        let mut devices: Vec<Device> = vec![];
+
+        for event in events.iter() {
+            match event.token() {
+                UPDATE_CHANNEL => match device_update_channel.try_recv().unwrap() {
+                    DeviceUpdate::Add(device) => {
+                        use nix::fcntl::{fcntl, FcntlArg, OFlag};
+
+                        let raw_fd = device.as_raw_fd();
+                        fcntl(raw_fd, FcntlArg::F_SETFL(OFlag::O_NONBLOCK)).unwrap();
+
+                        let _ = poll.registry().register(
+                            &mut SourceFd(&raw_fd),
+                            Token(devices.len() + UPDATE_CHANNEL.0 + 1),
+                            Interest::READABLE,
+                        );
+
+                        devices.push(device);
+                    }
+                    DeviceUpdate::Remove(device) => {
+                        let Some(idx) = devices.iter().position(|dev| {
+                            dev.physical_path()
+                                .map(|a| device.physical_path().map(|b| a == b).unwrap_or(false))
+                                .unwrap_or(false)
+                        }) else {
+                            continue;
+                        };
+
+                        let device = devices.swap_remove(idx);
+                        let raw_fd = device.as_raw_fd();
+
+                        let _ = poll.registry().deregister(&mut SourceFd(&raw_fd));
+                    }
+                },
+                idx => {
+                    let idx = idx.0 - UPDATE_CHANNEL.0;
+
+                    let Some(device) = devices.get_mut(idx) else {
+                        continue;
+                    };
+
+                    let id = device.physical_path().unwrap().to_string();
+
+                    match device.fetch_events() {
+                        Ok(iter) => {
+                            for event in iter {
+                                let event =
+                                    DeviceEvent::new(id.clone(), InputEvent::from_raw(event));
+
+                                use evdev::InputEventKind::*;
+
+                                match event.kind() {
+                                    Synchronization(_) | Misc(MiscType::MSC_SCAN) => continue,
+                                    _ => {}
+                                }
+
+                                event_pipeline.send(Event::DeviceEvent(event)).unwrap();
+                            }
+                        }
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            continue;
+                        }
+                        Err(e) => {
+                            todo!("Remove device from poll")
+                        }
+                    };
+                }
             }
         }
     }

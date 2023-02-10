@@ -1,14 +1,18 @@
 #![feature(file_create_new)]
-#![feature(type_alias_impl_trait)]
+#![feature(iter_intersperse)]
 
+mod action;
 mod config;
 mod device;
 mod events;
+mod mio_channel;
 mod thread;
 
-use device::events::DeviceEventWatcher;
+use action::{Action, ActionExecutor};
+use device::{events::DeviceEventWatcher, InputEvent};
 use evdev::Device;
 use events::{event_pipeline, Event};
+use ipc_channel::ipc::IpcOneShotServer;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (config_path, mut config) = config::load()?;
@@ -21,6 +25,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let device_event_watcher = DeviceEventWatcher::new(event_pipeline_sender)?;
 
     device_event_watcher.watch(evdev::enumerate().map(|(_, dev)| dev).collect());
+
+    let mut action_executor = ActionExecutor::new()?;
 
     while let Ok(event) = event_pipeline_receiver.recv() {
         match event {
@@ -37,16 +43,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 device_event_watcher.watch(added);
             }
             Event::ConfigWatchEvent(config_path) => {
-                config = if let Some(config) = config::reload(config_path)? {
-                    config
-                } else {
+                let Some(config) = config::reload(config_path)? else {
                     continue;
                 };
 
                 println!("Config file reload.\nNew config:\n{:#?}", config);
             }
             Event::DeviceEvent(event) => {
-                println!("Device event: {:?}", event);
+                use evdev::{InputEventKind, Key};
+
+                match event.kind() {
+                    InputEventKind::Key(Key::BTN_SOUTH) => {
+                        Action::InputEvents(vec![InputEvent::new(
+                            InputEventKind::Key(Key::KEY_PLAYPAUSE),
+                            event.value(),
+                        )])
+                        .execute(&mut action_executor)
+                        .unwrap();
+                    }
+                    _ => println!("Device event: {:?}", event),
+                }
             }
         }
     }
