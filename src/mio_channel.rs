@@ -44,7 +44,7 @@ impl Inner {
         let count = self.pending.fetch_add(1, Ordering::Acquire);
 
         if count == 0 {
-            if let Some(ref waker) = *self.waker.lock().unwrap() {
+            if let Some(waker) = self.waker.lock().unwrap().as_mut() {
                 waker.wake()?;
             }
         }
@@ -53,10 +53,10 @@ impl Inner {
     }
 
     fn decrement(&self) -> io::Result<()> {
-        let count = self.pending.fetch_sub(1, Ordering::SeqCst);
+        let count = self.pending.fetch_sub(1, Ordering::Acquire);
 
         if count > 1 {
-            if let Some(ref waker) = *self.waker.lock().unwrap() {
+            if let Some(waker) = self.waker.lock().unwrap().as_mut() {
                 waker.wake()?;
             }
         }

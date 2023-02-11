@@ -9,10 +9,9 @@ mod mio_channel;
 mod thread;
 
 use action::{Action, ActionExecutor};
-use device::{events::DeviceEventWatcher, InputEvent};
+use device::{events::DeviceEventWatch, InputEvent};
 use evdev::Device;
 use events::{event_pipeline, Event};
-use ipc_channel::ipc::IpcOneShotServer;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (config_path, mut config) = config::load()?;
@@ -22,11 +21,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config_watch_handle = config::watch(event_pipeline_sender.clone(), config_path)?;
     let device_watch_handle = device::watch(event_pipeline_sender.clone())?;
 
-    let device_event_watcher = DeviceEventWatcher::new(event_pipeline_sender)?;
+    let device_event_watcher = DeviceEventWatch::new(event_pipeline_sender)?;
 
     device_event_watcher.watch(evdev::enumerate().map(|(_, dev)| dev).collect());
 
-    let mut action_executor = ActionExecutor::new()?;
+    // let mut action_executor = ActionExecutor::new()?;
 
     while let Ok(event) = event_pipeline_receiver.recv() {
         match event {
@@ -57,11 +56,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         Action::InputEvents(vec![InputEvent::new(
                             InputEventKind::Key(Key::KEY_PLAYPAUSE),
                             event.value(),
-                        )])
-                        .execute(&mut action_executor)
-                        .unwrap();
-                    }
-                    _ => println!("Device event: {:?}", event),
+                        )]);
+                        // .execute(&mut action_executor)
+                        // .unwrap();
+                    } // _ => println!("Device event: {:?}", event),
+                    _ => {}
                 }
             }
         }
