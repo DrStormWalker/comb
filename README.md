@@ -8,7 +8,7 @@ mouse inputs and more to keyboard inputs and other actions
 CoMB is implemented through the use of evdev a generic input device interface
 that generalizes inputs from different drivers. 
 
-CoMB uses Rust's [Tokio](https://tokio.rs/) library to allow for non-blocking
+CoMB uses Rust's [mio](https://github.com/tokio-rs/mio) library to allow for non-blocking
 access to the evdev devices.
 
 ## Features
