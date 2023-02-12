@@ -1,6 +1,6 @@
 use std::{path::PathBuf, sync::mpsc};
 
-use crate::device::DeviceEvent;
+use crate::device::{DeviceEvent, DeviceInput};
 
 pub type EventPipelineSender = mpsc::Sender<Event>;
 pub type EventPipelineReceiver = mpsc::Receiver<Event>;
@@ -16,4 +16,5 @@ pub enum Event {
         removed: Vec<PathBuf>,
     },
     DeviceEvent(DeviceEvent),
+    DeviceInput(DeviceInput),
 }

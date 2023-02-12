@@ -1,17 +1,96 @@
-use std::{io, os::fd::AsRawFd, thread::JoinHandle, time::Duration};
+use std::{io, ops::Deref, os::fd::AsRawFd, thread::JoinHandle, time::SystemTime};
 
-use evdev::{Device, MiscType};
+use evdev::{EventType, InputEventKind, MiscType};
 use mio::{unix::SourceFd, Events, Interest, Poll, Token};
 
 use crate::{
-    device::{DeviceEvent, InputEvent},
     events::{Event, EventPipelineSender},
     mio_channel, thread,
 };
 
+use super::{DeviceId, DeviceIdCombo};
+
+#[derive(Debug, Clone)]
+struct InputEvent {
+    time: SystemTime,
+    kind: InputEventKind,
+    value: i32,
+}
+impl InputEvent {
+    pub fn new(kind: InputEventKind, value: i32) -> Self {
+        Self {
+            time: SystemTime::now(),
+            kind,
+            value,
+        }
+    }
+
+    pub fn from_raw(event: evdev::InputEvent) -> Self {
+        Self {
+            time: event.timestamp(),
+            kind: event.kind(),
+            value: event.value(),
+        }
+    }
+
+    pub fn as_raw(&self) -> evdev::InputEvent {
+        let (type_, code) = match self.kind {
+            InputEventKind::Synchronization(sync) => (EventType::SYNCHRONIZATION, sync.0),
+            InputEventKind::Key(key) => (EventType::KEY, key.0),
+            InputEventKind::RelAxis(axis) => (EventType::RELATIVE, axis.0),
+            InputEventKind::AbsAxis(axis) => (EventType::ABSOLUTE, axis.0),
+            InputEventKind::Misc(misc) => (EventType::MISC, misc.0),
+            InputEventKind::Switch(switch) => (EventType::SWITCH, switch.0),
+            InputEventKind::Led(led) => (EventType::LED, led.0),
+            InputEventKind::Sound(sound) => (EventType::SOUND, sound.0),
+            InputEventKind::ForceFeedback(ff) => (EventType::FORCEFEEDBACK, ff),
+            InputEventKind::ForceFeedbackStatus(ffs) => (EventType::FORCEFEEDBACKSTATUS, ffs),
+            InputEventKind::UInput(uinput) => (EventType::UINPUT, uinput),
+            InputEventKind::Other => todo!(),
+        };
+
+        evdev::InputEvent::new(type_, code, self.value)
+    }
+
+    pub fn kind(&self) -> InputEventKind {
+        self.kind
+    }
+
+    pub fn value(&self) -> i32 {
+        self.value
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DeviceEvent {
+    device: DeviceId,
+    event: InputEvent,
+}
+impl DeviceEvent {
+    fn new(device: String, event: InputEvent) -> Self {
+        Self { device, event }
+    }
+
+    pub fn device(&self) -> &str {
+        &self.device
+    }
+
+    pub fn time(&self) -> SystemTime {
+        self.event.time
+    }
+
+    pub fn value(&self) -> i32 {
+        self.event.value
+    }
+
+    pub fn kind(&self) -> InputEventKind {
+        self.event.kind
+    }
+}
+
 enum DeviceUpdate {
-    Add(Device),
-    Remove(Device),
+    Add(DeviceIdCombo),
+    Remove(DeviceId),
 }
 
 pub struct DeviceEventWatch {
@@ -36,13 +115,13 @@ impl DeviceEventWatch {
         self.thread_handle.join()
     }
 
-    pub fn watch(&self, devices: Vec<Device>) {
+    pub fn watch(&self, devices: Vec<DeviceIdCombo>) {
         for device in devices {
             let e = self.device_update_channel.send(DeviceUpdate::Add(device));
         }
     }
 
-    pub fn unwatch(&self, devices: Vec<Device>) {
+    pub fn unwatch(&self, devices: Vec<DeviceId>) {
         for device in devices {
             let _ = self
                 .device_update_channel
@@ -55,7 +134,7 @@ const UPDATE_CHANNEL: Token = Token(0);
 
 struct DeviceEventWatcher {
     poll: Poll,
-    devices: Vec<Device>,
+    devices: Vec<DeviceIdCombo>,
     event_pipeline: EventPipelineSender,
     device_update_channel: mio_channel::Receiver<DeviceUpdate>,
 }
@@ -102,9 +181,7 @@ impl DeviceEventWatcher {
             DeviceUpdate::Add(device) => self.add_device(device),
             DeviceUpdate::Remove(device) => {
                 let Some(idx) = self.devices.iter().position(|dev| {
-                    dev.physical_path()
-                        .map(|a| device.physical_path().map(|b| a == b).unwrap_or(false))
-                        .unwrap_or(false)
+                    dev.id() == device
                 }) else {
                     return;
                 };
@@ -114,8 +191,10 @@ impl DeviceEventWatcher {
         }
     }
 
-    fn add_device(&mut self, device: Device) {
+    fn add_device(&mut self, device: DeviceIdCombo) {
         use nix::fcntl::{fcntl, FcntlArg, OFlag};
+
+        println!("Added {} ({:?})", device.name().unwrap(), device.id());
 
         let raw_fd = device.as_raw_fd();
         fcntl(raw_fd, FcntlArg::F_SETFL(OFlag::O_NONBLOCK)).unwrap();
@@ -132,6 +211,9 @@ impl DeviceEventWatcher {
 
     fn remove_device(&mut self, idx: usize) {
         let device = self.devices.swap_remove(idx);
+
+        println!("Removed {} ({:?})", device.name().unwrap(), device.id());
+
         let raw_fd = device.as_raw_fd();
 
         let _ = self.poll.registry().deregister(&mut SourceFd(&raw_fd));
@@ -148,11 +230,17 @@ impl DeviceEventWatcher {
             use evdev::InputEventKind::*;
 
             match event.kind() {
-                Synchronization(_) | Misc(MiscType::MSC_SCAN) => return,
+                Synchronization(_) | Misc(MiscType::MSC_SCAN) => continue,
                 _ => {}
             }
 
-            event_pipeline.send(Event::DeviceEvent(event)).unwrap();
+            event_pipeline
+                .send(Event::DeviceEvent(event.clone()))
+                .unwrap();
+
+            if let Ok(input) = event.try_into() {
+                let _ = event_pipeline.send(Event::DeviceInput(input));
+            }
         }
     }
 
@@ -161,14 +249,12 @@ impl DeviceEventWatcher {
             return;
         };
 
-        let id = device.physical_path().unwrap().to_string();
+        let id = device.id().to_string();
 
         {
             let events = device.fetch_events();
-            // println!("{:?}", events.is_err());
 
             let events = match events {
-                Err(e) => return println!("{:?}", e),
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => return,
                 events => events,
             };

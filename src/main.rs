@@ -1,17 +1,23 @@
 #![feature(file_create_new)]
 #![feature(iter_intersperse)]
+#![feature(iter_collect_into)]
+#![feature(if_let_guard)]
 
 mod action;
 mod config;
 mod device;
 mod events;
+mod input;
 mod mio_channel;
 mod thread;
 
-use action::{Action, ActionExecutor};
-use device::{events::DeviceEventWatch, InputEvent};
+use std::path::PathBuf;
+
+use device::{events::DeviceEventWatch, open_devices, DeviceIdCombo};
 use evdev::Device;
 use events::{event_pipeline, Event};
+
+use crate::device::DeviceAccessor;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (config_path, mut config) = config::load()?;
@@ -21,20 +27,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config_watch_handle = config::watch(event_pipeline_sender.clone(), config_path)?;
     let device_watch_handle = device::watch(event_pipeline_sender.clone())?;
 
-    let device_event_watcher = DeviceEventWatch::new(event_pipeline_sender)?;
+    let device_event_watcher = DeviceEventWatch::new(event_pipeline_sender.clone())?;
 
-    device_event_watcher.watch(evdev::enumerate().map(|(_, dev)| dev).collect());
+    let xbox = DeviceAccessor::Name("Microsoft X-Box One S pad".to_string());
+    let kb = DeviceAccessor::Path(PathBuf::from(
+        "/dev/input/by-id/usb-BY_Tech_Usb_Gaming_Keyboard-event-kbd",
+    ));
+
+    device_event_watcher.watch(
+        // evdev::enumerate()
+        //     .map(|(path, dev)| DeviceIdCombo::from_accessor(DeviceAccessor::Path(path), dev))
+        //     .collect(),
+        open_devices(&[xbox, kb]),
+    );
 
     // let mut action_executor = ActionExecutor::new()?;
 
     while let Ok(event) = event_pipeline_receiver.recv() {
         match event {
             Event::DeviceWatchEvent { added, removed } => {
-                println!("Added devices: {:?}. Removed devices: {:?}", added, removed);
+                // println!("Added devices: {:?}. Removed devices: {:?}", added, removed);
 
                 let added = added
                     .into_iter()
-                    .map(|path| Device::open(path).unwrap())
+                    .map(|path| {
+                        DeviceIdCombo::from_accessor(
+                            DeviceAccessor::Path(path.clone()),
+                            Device::open(path).unwrap(),
+                        )
+                    })
                     .collect();
 
                 // The removed devices are automatically removed by the event stream map
@@ -48,20 +69,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 println!("Config file reload.\nNew config:\n{:#?}", config);
             }
-            Event::DeviceEvent(event) => {
-                use evdev::{InputEventKind, Key};
-
-                match event.kind() {
-                    InputEventKind::Key(Key::BTN_SOUTH) => {
-                        Action::InputEvents(vec![InputEvent::new(
-                            InputEventKind::Key(Key::KEY_PLAYPAUSE),
-                            event.value(),
-                        )]);
-                        // .execute(&mut action_executor)
-                        // .unwrap();
-                    } // _ => println!("Device event: {:?}", event),
-                    _ => {}
+            Event::DeviceEvent(_) => {}
+            Event::DeviceInput(input) => {
+                if input.value() == 2 {
+                    continue;
                 }
+                println!(
+                    "{} {}",
+                    input.input(),
+                    match input.value() {
+                        0 => "released",
+                        1 => "pressed",
+                        2 => "repeated",
+                        _ => "",
+                    }
+                );
             }
         }
     }

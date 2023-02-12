@@ -2,10 +2,8 @@ use std::io;
 
 use evdev::{
     uinput::{VirtualDevice, VirtualDeviceBuilder},
-    AttributeSet, EventType, Key, Synchronization,
+    AttributeSet, Key,
 };
-
-use crate::device::InputEvent;
 
 pub struct ActionExecutor {
     virtual_device: VirtualDevice,
@@ -25,33 +23,34 @@ impl ActionExecutor {
 }
 
 pub enum Action {
-    InputEvents(Vec<InputEvent>),
+    // Bind(Vec<InputEvent>),
+    // Type(String),
 }
 impl Action {
-    pub fn execute(&self, executor: &mut ActionExecutor) -> io::Result<()> {
-        match self {
-            Self::InputEvents(input_events) => executor.virtual_device.emit(
-                &[
-                    input_events
-                        .iter()
-                        .map(|event| event.as_raw())
-                        .intersperse_with(|| {
-                            evdev::InputEvent::new(
-                                EventType::SYNCHRONIZATION,
-                                Synchronization::SYN_REPORT.0,
-                                0,
-                            )
-                        })
-                        .collect::<Vec<evdev::InputEvent>>()
-                        .as_slice(),
-                    &[evdev::InputEvent::new(
-                        EventType::SYNCHRONIZATION,
-                        Synchronization::SYN_REPORT.0,
-                        0,
-                    )],
-                ]
-                .concat(),
-            ),
-        }
-    }
+    // pub fn execute(&self, executor: &mut ActionExecutor) -> io::Result<()> {
+    //     match self {
+    //         Self::InputEvents(input_events) => executor.virtual_device.emit(
+    //             &[
+    //                 input_events
+    //                     .iter()
+    //                     .map(|event| event.as_raw())
+    //                     .intersperse_with(|| {
+    //                         evdev::InputEvent::new(
+    //                             EventType::SYNCHRONIZATION,
+    //                             Synchronization::SYN_REPORT.0,
+    //                             0,
+    //                         )
+    //                     })
+    //                     .collect::<Vec<evdev::InputEvent>>()
+    //                     .as_slice(),
+    //                 &[evdev::InputEvent::new(
+    //                     EventType::SYNCHRONIZATION,
+    //                     Synchronization::SYN_REPORT.0,
+    //                     0,
+    //                 )],
+    //             ]
+    //             .concat(),
+    //         ),
+    //     }
+    // }
 }

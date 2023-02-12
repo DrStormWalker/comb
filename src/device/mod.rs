@@ -2,83 +2,143 @@ pub mod events;
 mod monitor;
 
 use std::{
-    ops::Deref,
-    path::{Path, PathBuf},
+    fmt::Debug,
+    ops::{Deref, DerefMut},
+    path::PathBuf,
     time::SystemTime,
 };
 
-use evdev::{EventType, InputEventKind};
+use evdev::{Device, InputEventKind};
+pub use events::DeviceEvent;
 pub use monitor::watch;
 
-#[derive(Debug)]
-pub struct InputEvent {
-    time: SystemTime,
-    kind: InputEventKind,
-    value: i32,
+use crate::input::Input;
+
+pub type DeviceId = String;
+
+#[derive(Clone)]
+pub enum DeviceAccessor {
+    Name(String),
+    Path(PathBuf),
 }
-impl InputEvent {
-    pub fn new(kind: InputEventKind, value: i32) -> Self {
+impl Into<DeviceId> for DeviceAccessor {
+    fn into(self) -> DeviceId {
+        match self {
+            Self::Name(name) => name,
+            Self::Path(path) => path.to_string_lossy().to_string(),
+        }
+    }
+}
+
+pub struct DeviceIdCombo {
+    device: Device,
+    id: DeviceId,
+}
+impl DeviceIdCombo {
+    pub fn new(id: DeviceId, device: Device) -> Self {
+        Self { device, id }
+    }
+
+    pub fn from_accessor(accessor: DeviceAccessor, device: Device) -> Self {
         Self {
-            time: SystemTime::now(),
-            kind,
-            value,
+            device,
+            id: accessor.into(),
         }
     }
 
-    pub fn from_raw(event: evdev::InputEvent) -> Self {
-        Self {
-            time: event.timestamp(),
-            kind: event.kind(),
-            value: event.value(),
-        }
+    pub fn id(&self) -> &str {
+        &self.id
     }
+}
+impl Deref for DeviceIdCombo {
+    type Target = Device;
 
-    pub fn as_raw(&self) -> evdev::InputEvent {
-        let (type_, code) = match self.kind {
-            InputEventKind::Synchronization(sync) => (EventType::SYNCHRONIZATION, sync.0),
-            InputEventKind::Key(key) => (EventType::KEY, key.0),
-            InputEventKind::RelAxis(axis) => (EventType::RELATIVE, axis.0),
-            InputEventKind::AbsAxis(axis) => (EventType::ABSOLUTE, axis.0),
-            InputEventKind::Misc(misc) => (EventType::MISC, misc.0),
-            InputEventKind::Switch(switch) => (EventType::SWITCH, switch.0),
-            InputEventKind::Led(led) => (EventType::LED, led.0),
-            InputEventKind::Sound(sound) => (EventType::SOUND, sound.0),
-            InputEventKind::ForceFeedback(ff) => (EventType::FORCEFEEDBACK, ff),
-            InputEventKind::ForceFeedbackStatus(ffs) => (EventType::FORCEFEEDBACKSTATUS, ffs),
-            InputEventKind::UInput(uinput) => (EventType::UINPUT, uinput),
-            InputEventKind::Other => todo!(),
-        };
-
-        evdev::InputEvent::new(type_, code, self.value)
+    fn deref(&self) -> &Self::Target {
+        &self.device
     }
+}
+impl DerefMut for DeviceIdCombo {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.device
+    }
+}
+impl Debug for DeviceIdCombo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "DeviceIdCombo({})", self.id)
+    }
+}
 
-    pub fn kind(&self) -> InputEventKind {
-        self.kind
+#[derive(Debug, Clone)]
+pub struct DeviceInput {
+    time: SystemTime,
+    input: Input,
+    value: i32,
+    device: DeviceId,
+}
+impl DeviceInput {
+    pub fn input(&self) -> Input {
+        self.input
     }
 
     pub fn value(&self) -> i32 {
         self.value
     }
 }
+impl TryFrom<DeviceEvent> for DeviceInput {
+    type Error = ();
 
-#[derive(Debug)]
-pub struct DeviceEvent {
-    device: String,
-    event: InputEvent,
+    fn try_from(value: DeviceEvent) -> Result<Self, Self::Error> {
+        let input = match value.kind() {
+            InputEventKind::Key(key) => key.into(),
+            _ => return Err(()),
+        };
+
+        Ok(Self {
+            time: value.time(),
+            input,
+            value: value.value(),
+            device: value.device().to_string(),
+        })
+    }
 }
-impl DeviceEvent {
-    pub fn new(device: String, event: InputEvent) -> Self {
-        Self { device, event }
-    }
 
-    pub fn device(&self) -> &str {
-        &self.device
-    }
-}
-impl Deref for DeviceEvent {
-    type Target = InputEvent;
+pub fn open_devices(devices: &[DeviceAccessor]) -> Vec<DeviceIdCombo> {
+    let mut opened_devices = vec![];
 
-    fn deref(&self) -> &Self::Target {
-        &self.event
-    }
+    let names = devices
+        .iter()
+        .filter_map(|dev| match dev {
+            DeviceAccessor::Name(ref name) => Some(name.trim()),
+            _ => None,
+        })
+        .collect::<Vec<&str>>();
+
+    evdev::enumerate()
+        .filter_map(|(_, device)| {
+            device
+                .unique_name()
+                .or_else(|| device.name())
+                .map(|name| name.to_string())
+                .and_then(|name| {
+                    if names.contains(&name.trim()) {
+                        Some(DeviceIdCombo::new(name, device))
+                    } else {
+                        None
+                    }
+                })
+        })
+        .collect_into(&mut opened_devices);
+
+    devices
+        .iter()
+        .filter_map(|dev| match dev {
+            DeviceAccessor::Path(path) => Some(DeviceIdCombo::from_accessor(
+                dev.clone(),
+                Device::open(path).ok()?,
+            )),
+            _ => None,
+        })
+        .collect_into(&mut opened_devices);
+
+    opened_devices
 }
