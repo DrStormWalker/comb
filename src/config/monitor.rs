@@ -27,7 +27,7 @@ pub fn watch(
 ) -> Result<JoinHandle<()>, notify::Error> {
     let config_path = config_path.as_ref().to_path_buf();
 
-    let (mut debouncer, mut rx) = new_debouncer(Duration::from_secs(1), None)?;
+    let (mut debouncer, rx) = new_debouncer(Duration::from_secs(1), None)?;
 
     let config_watch_handle = thread::spawn_named("config watcher", move || {
         debouncer

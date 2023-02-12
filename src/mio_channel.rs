@@ -105,7 +105,7 @@ impl<T> Source for Receiver<T> {
         &mut self,
         registry: &mio::Registry,
         token: mio::Token,
-        interests: mio::Interest,
+        _: mio::Interest,
     ) -> io::Result<()> {
         if self.inner.waker.lock().unwrap().is_some() {
             return Err(io::Error::new(
@@ -129,7 +129,7 @@ impl<T> Source for Receiver<T> {
         &mut self,
         registry: &mio::Registry,
         token: mio::Token,
-        interests: mio::Interest,
+        _: mio::Interest,
     ) -> io::Result<()> {
         let mut inner_waker = self.inner.waker.lock().unwrap();
         if inner_waker.is_some() {
@@ -150,7 +150,7 @@ impl<T> Source for Receiver<T> {
         }
     }
 
-    fn deregister(&mut self, registry: &mio::Registry) -> io::Result<()> {
+    fn deregister(&mut self, _: &mio::Registry) -> io::Result<()> {
         let mut waker = self.inner.waker.lock().unwrap();
         if waker.is_some() {
             *waker = None;

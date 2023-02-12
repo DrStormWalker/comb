@@ -48,7 +48,7 @@ fn populate_devices(devices: &mut HashSet<PathBuf>) -> (Vec<PathBuf>, Vec<PathBu
 pub fn watch(event_pipeline: EventPipelineSender) -> Result<JoinHandle<()>, notify::Error> {
     let dev_path = Path::new("/dev/input");
 
-    let (mut watcher, mut rx) = new_watcher()?;
+    let (mut watcher, rx) = new_watcher()?;
 
     let device_watch_handle = thread::spawn_named("device watcher", move || {
         watcher

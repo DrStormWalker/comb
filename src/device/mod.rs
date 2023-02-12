@@ -11,12 +11,14 @@ use std::{
 use evdev::{Device, InputEventKind};
 pub use events::DeviceEvent;
 pub use monitor::watch;
+use serde::{Deserialize, Serialize};
 
 use crate::input::Input;
 
 pub type DeviceId = String;
 
-#[derive(Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum DeviceAccessor {
     Name(String),
     Path(PathBuf),
@@ -69,6 +71,7 @@ impl Debug for DeviceIdCombo {
 }
 
 #[derive(Debug, Clone)]
+#[allow(unused)]
 pub struct DeviceInput {
     time: SystemTime,
     input: Input,

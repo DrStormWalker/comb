@@ -39,6 +39,7 @@ macro_rules! __input_enum_internal {
             type Error = ();
 
             fn try_from(value: $from) -> Result<Self, Self::Error> {
+                #[allow(unreachable_patterns)]
                 match value {
                     $($evdev => Ok($N::$tag)),*,
                     _ => Err(())
@@ -116,6 +117,7 @@ impl From<evdev::Key> for Input {
 }
 
 mod tests {
+    #[allow(unused_imports)]
     use super::*;
 
     #[test]

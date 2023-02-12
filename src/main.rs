@@ -18,7 +18,7 @@ use events::{event_pipeline, Event};
 use crate::device::DeviceAccessor;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let (config_path, mut config) = config::load()?;
+    let (config_path, _config) = config::load()?;
 
     let (event_pipeline_sender, event_pipeline_receiver) = event_pipeline();
 
