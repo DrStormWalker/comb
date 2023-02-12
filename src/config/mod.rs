@@ -16,7 +16,7 @@ use self::device::Device;
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
-    devices: Vec<Device>,
+    pub devices: Vec<Device>,
 }
 
 #[derive(Debug, thiserror::Error)]

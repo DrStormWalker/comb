@@ -1,5 +1,7 @@
 #![feature(file_create_new)]
 #![feature(iter_collect_into)]
+#![feature(if_let_guard)]
+#![feature(let_chains)]
 
 mod action;
 mod config;
@@ -9,16 +11,14 @@ mod input;
 mod mio_channel;
 mod thread;
 
-use std::path::PathBuf;
-
-use device::{events::DeviceEventWatch, open_devices, DeviceIdCombo};
+use device::{events::DeviceEventWatch, open_devices, path_in_devices, DeviceIdCombo};
 use evdev::Device;
 use events::{event_pipeline, Event};
 
-use crate::device::DeviceAccessor;
+use crate::device::{DeviceAccessor, DeviceId};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let (config_path, _config) = config::load()?;
+    let (config_path, mut config) = config::load()?;
 
     let (event_pipeline_sender, event_pipeline_receiver) = event_pipeline();
 
@@ -27,28 +27,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let device_event_watcher = DeviceEventWatch::new(event_pipeline_sender.clone())?;
 
-    let xbox = DeviceAccessor::Name("Microsoft X-Box One S pad".to_string());
-    let kb = DeviceAccessor::Path(PathBuf::from(
-        "/dev/input/by-id/usb-BY_Tech_Usb_Gaming_Keyboard-event-kbd",
-    ));
+    // let xbox = DeviceAccessor::Name("Microsoft X-Box One S pad".to_string());
+    // let kb = DeviceAccessor::Path(PathBuf::from(
+    //     "/dev/input/by-id/usb-BY_Tech_Usb_Gaming_Keyboard-event-kbd",
+    // ));
 
-    device_event_watcher.watch(
-        // evdev::enumerate()
-        //     .map(|(path, dev)| DeviceIdCombo::from_accessor(DeviceAccessor::Path(path), dev))
-        //     .collect(),
-        open_devices(&[xbox, kb]),
-    );
+    let mut accessors: Vec<DeviceAccessor> = config
+        .devices
+        .iter()
+        .map(|dev| dev.accessor.canonicalized())
+        .collect();
+
+    device_event_watcher.watch(open_devices(&accessors));
 
     while let Ok(event) = event_pipeline_receiver.recv() {
         match event {
             Event::DeviceWatchEvent { added, removed: _ } => {
                 let added = added
                     .into_iter()
-                    .map(|path| {
-                        DeviceIdCombo::from_accessor(
-                            DeviceAccessor::Path(path.clone()),
-                            Device::open(path).unwrap(),
-                        )
+                    .filter_map(|path| {
+                        let device = Device::open(&path).ok()?;
+
+                        path_in_devices(path, &device, &accessors)
+                            .map(|accessor| DeviceIdCombo::from_accessor(accessor.clone(), device))
                     })
                     .collect();
 
@@ -57,11 +58,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 device_event_watcher.watch(added);
             }
             Event::ConfigWatchEvent(config_path) => {
-                let Some(config) = config::reload(config_path)? else {
+                let Some(new_config) = config::reload(config_path)? else {
                     continue;
                 };
 
-                println!("Config file reload.\nNew config:\n{:#?}", config);
+                println!("Config file reload.\nNew config:\n{:#?}", new_config);
+
+                config = new_config;
+                let new_accessors: Vec<DeviceAccessor> = config
+                    .devices
+                    .iter()
+                    .map(|dev| dev.accessor.canonicalized())
+                    .collect();
+
+                let removed: Vec<DeviceId> = accessors
+                    .iter()
+                    .filter(|accessor| !new_accessors.contains(&accessor))
+                    .map(|accessor| accessor.to_string())
+                    .collect();
+
+                accessors = new_accessors;
+
+                device_event_watcher.unwatch(removed);
+                device_event_watcher.watch(open_devices(&accessors));
             }
             Event::DeviceEvent(_) => {}
             Event::DeviceInput(input) => {

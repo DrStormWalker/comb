@@ -3,7 +3,6 @@ use crate::input_enum;
 input_enum! {
     #[derive(Debug, Copy, Clone, Eq, PartialEq)]
     pub enum Btn {
-        TryFrom<evdev::Key>,
         Key0 => "0" evdev::Key::BTN_0,
         Key1 => "1" evdev::Key::BTN_1,
         Key2 => "2" evdev::Key::BTN_2,
@@ -112,4 +111,5 @@ input_enum! {
         TriggerHappy39 => "trigger_happy39" evdev::Key::BTN_TRIGGER_HAPPY39,
         TriggerHappy40 => "trigger_happy40" evdev::Key::BTN_TRIGGER_HAPPY40,
     }
+    impl TryFrom<evdev::Key>;
 }

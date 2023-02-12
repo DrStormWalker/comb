@@ -7,9 +7,9 @@ pub use self::{btn::Btn, key::Key};
 
 #[macro_export(local_inner_macros)]
 macro_rules! __input_enum_internal {
-    ($(#[$attr:meta])* ($($vis:tt)*) enum $N:ident { TryFrom<$from:path>, $($t:tt)* }) => {
+    ($(#[$attr:meta])* ($($vis:tt)*) enum $N:ident { $($t:tt)* } impl TryFrom<$from:ty>;) => {
         __input_enum_internal!(@ENUM, $(#[$attr])*, ($($vis)*), $N, $($t)*);
-        __input_enum_internal!(@IMPLS, $N, TryFrom<$from>, $($t)*);
+        __input_enum_internal!(@IMPLS, $N, $from, $($t)*);
     };
     (@ENUM, $(#[$attr:meta])*, ($($vis:tt)*), $N:ident, $($tag:ident => $key:literal $evdev:path),*,) => {
         $(#[$attr])*
@@ -17,7 +17,7 @@ macro_rules! __input_enum_internal {
             $($tag),*
         }
     };
-    (@IMPLS, $N:ident, TryFrom<$from:path>, $($tag:ident => $key:literal $evdev:path),*,) => {
+    (@IMPLS, $N:ident, $from:ty, $($tag:ident => $key:literal $evdev:path),*,) => {
         impl $N {
             pub fn as_str(&self) -> &str {
                 match self {
@@ -63,14 +63,14 @@ macro_rules! __input_enum_internal {
 
 #[macro_export(local_inner_macros)]
 macro_rules! input_enum {
-    ($(#[$attr:meta])* enum $N:ident { $($t:tt)* }) => {
-        __input_enum_internal!($(#[$attr])* () enum $N { $($t)* });
+    ($(#[$attr:meta])* enum $N:ident { $($t:tt)* } impl TryFrom<$from:ty>;) => {
+        __input_enum_internal!($(#[$attr])* () enum $N { $($t)* } impl TryFrom<$from>;);
     };
-    ($(#[$attr:meta])* pub enum $N:ident { $($t:tt)* }) => {
-        __input_enum_internal!($(#[$attr])* (pub) enum $N { $($t)* });
+    ($(#[$attr:meta])* pub enum $N:ident { $($t:tt)* } impl TryFrom<$from:ty>;) => {
+        __input_enum_internal!($(#[$attr])* (pub) enum $N { $($t)* } impl TryFrom<$from>;);
     };
-    ($(#[$attr:meta])* pub ($($vis:tt)+) enum $N:ident { $($t:tt)* }) => {
-        __input_enum_internal!($(#[$attr])* (pub ($($vis)+)) enum $N { $($t)* });
+    ($(#[$attr:meta])* pub ($($vis:tt)+) enum $N:ident { $($t:tt)* } impl TryFrom<$from:ty>;) => {
+        __input_enum_internal!($(#[$attr])* (pub ($($vis)+)) enum $N { $($t)* } impl TryFrom<$from>;);
     };
 }
 

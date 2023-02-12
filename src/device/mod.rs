@@ -4,7 +4,7 @@ mod monitor;
 use std::{
     fmt::Debug,
     ops::{Deref, DerefMut},
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::SystemTime,
 };
 
@@ -17,16 +17,28 @@ use crate::input::Input;
 
 pub type DeviceId = String;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum DeviceAccessor {
     Name(String),
     Path(PathBuf),
 }
-impl Into<DeviceId> for DeviceAccessor {
-    fn into(self) -> DeviceId {
+impl DeviceAccessor {
+    pub fn canonicalized(&self) -> Self {
         match self {
-            Self::Name(name) => name,
+            // if let guards are unstable
+            // (issue #51114 https://github.com/rust-lang/rust/issues/51114)
+            Self::Path(path) if let Ok(path) = path.canonicalize() => {
+                Self::Path(path)
+            }
+            _ => self.clone()
+        }
+    }
+}
+impl ToString for DeviceAccessor {
+    fn to_string(&self) -> String {
+        match self {
+            Self::Name(name) => name.clone(),
             Self::Path(path) => path.to_string_lossy().to_string(),
         }
     }
@@ -44,7 +56,7 @@ impl DeviceIdCombo {
     pub fn from_accessor(accessor: DeviceAccessor, device: Device) -> Self {
         Self {
             device,
-            id: accessor.into(),
+            id: accessor.to_string(),
         }
     }
 
@@ -118,9 +130,7 @@ pub fn open_devices(devices: &[DeviceAccessor]) -> Vec<DeviceIdCombo> {
 
     evdev::enumerate()
         .filter_map(|(_, device)| {
-            device
-                .unique_name()
-                .or_else(|| device.name())
+            get_device_name_id(&device)
                 .map(|name| name.to_string())
                 .and_then(|name| {
                     if names.contains(&name.trim()) {
@@ -148,4 +158,30 @@ pub fn open_devices(devices: &[DeviceAccessor]) -> Vec<DeviceIdCombo> {
         .collect_into(&mut opened_devices);
 
     opened_devices
+}
+
+fn get_device_name_id(device: &Device) -> Option<&str> {
+    device.unique_name().or_else(|| device.name())
+}
+
+pub fn path_in_devices<'a>(
+    path: impl AsRef<Path>,
+    device: &Device,
+    accessors: &'a [DeviceAccessor],
+) -> Option<&'a DeviceAccessor> {
+    for accessor in accessors {
+        match accessor {
+            DeviceAccessor::Path(p) if p == path.as_ref() => return Some(accessor),
+            // if let guards are unstable
+            // (issue #51114 https://github.com/rust-lang/rust/issues/51114)
+            // let chains are unstable
+            // (issue #53667 https://github.com/rust-lang/rust/issues/53667)
+            DeviceAccessor::Name(name) if let Some(id) = get_device_name_id(&device) && id == &name[..] => {
+                return Some(accessor)
+            }
+            _ => {}
+        }
+    }
+
+    None
 }

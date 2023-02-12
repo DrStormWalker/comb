@@ -3,7 +3,6 @@ use crate::input_enum;
 input_enum! {
     #[derive(Debug, Copy, Clone, Eq, PartialEq)]
     pub enum Key {
-        TryFrom<evdev::Key>,
         Esc => "esc" evdev::Key::KEY_ESC,
         Key1 => "1" evdev::Key::KEY_1,
         Key2 => "2" evdev::Key::KEY_2,
@@ -445,4 +444,5 @@ input_enum! {
         PrivacyScreenToggle => "privacy_screen_toggle" evdev::Key::KEY_PRIVACY_SCREEN_TOGGLE,
         SelectiveScreenshot => "selective_screenshot" evdev::Key::KEY_SELECTIVE_SCREENSHOT,
     }
+    impl TryFrom<evdev::Key>;
 }

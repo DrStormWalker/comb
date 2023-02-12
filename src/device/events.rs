@@ -165,14 +165,19 @@ impl DeviceEventWatcher {
         let raw_fd = device.as_raw_fd();
         fcntl(raw_fd, FcntlArg::F_SETFL(OFlag::O_NONBLOCK)).unwrap();
 
-        let _ = self.poll.registry().register(
-            &mut SourceFd(&raw_fd),
-            Token(self.devices.len() + UPDATE_CHANNEL.0 + 1),
-            Interest::READABLE,
-        );
-
-        self.devices.reserve_exact(1);
-        self.devices.push(device);
+        if self
+            .poll
+            .registry()
+            .register(
+                &mut SourceFd(&raw_fd),
+                Token(self.devices.len() + UPDATE_CHANNEL.0 + 1),
+                Interest::READABLE,
+            )
+            .is_ok()
+        {
+            self.devices.reserve_exact(1);
+            self.devices.push(device);
+        }
     }
 
     fn remove_device(&mut self, idx: usize) {
