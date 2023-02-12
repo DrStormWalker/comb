@@ -1,6 +1,6 @@
 use std::{io, os::fd::AsRawFd, thread::JoinHandle, time::SystemTime};
 
-use evdev::{InputEventKind, MiscType};
+use evdev::{InputEvent, InputEventKind, MiscType};
 use mio::{unix::SourceFd, Events, Interest, Poll, Token};
 
 use crate::{
@@ -11,45 +11,36 @@ use crate::{
 use super::{DeviceId, DeviceIdCombo};
 
 #[derive(Debug, Clone)]
-struct InputEvent {
-    time: SystemTime,
+pub struct DeviceEvent {
+    device: DeviceId,
+    timestamp: SystemTime,
     kind: InputEventKind,
     value: i32,
 }
-impl InputEvent {
-    pub fn from_raw(event: evdev::InputEvent) -> Self {
+impl DeviceEvent {
+    fn new(device: String, event: InputEvent) -> Self {
         Self {
-            time: event.timestamp(),
+            device,
+            timestamp: event.timestamp(),
             kind: event.kind(),
             value: event.value(),
         }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct DeviceEvent {
-    device: DeviceId,
-    event: InputEvent,
-}
-impl DeviceEvent {
-    fn new(device: String, event: InputEvent) -> Self {
-        Self { device, event }
     }
 
     pub fn device(&self) -> &str {
         &self.device
     }
 
-    pub fn time(&self) -> SystemTime {
-        self.event.time
+    pub fn timestamp(&self) -> SystemTime {
+        self.timestamp
     }
 
     pub fn value(&self) -> i32 {
-        self.event.value
+        self.value
     }
 
     pub fn kind(&self) -> InputEventKind {
-        self.event.kind
+        self.kind
     }
 }
 
@@ -196,7 +187,7 @@ impl DeviceEventWatcher {
         id: String,
     ) {
         for event in events {
-            let event = DeviceEvent::new(id.clone(), InputEvent::from_raw(event));
+            let event = DeviceEvent::new(id.clone(), event);
 
             use evdev::InputEventKind::*;
 

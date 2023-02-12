@@ -116,6 +116,67 @@ impl From<evdev::Key> for Input {
     }
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct InputEvent {
+    input: Input,
+    state: State,
+}
+impl InputEvent {
+    pub fn try_from_raw_key(key: evdev::Key, value: i32) -> Option<Self> {
+        Some(Self {
+            input: key.into(),
+            state: State::from_i32(value)?,
+        })
+    }
+
+    pub fn input(&self) -> Input {
+        self.input
+    }
+
+    pub fn state(&self) -> State {
+        self.state
+    }
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
+pub enum State {
+    #[default]
+    Pressed = 1,
+    Released = 0,
+    Repeated = 2,
+}
+impl State {
+    pub fn from_i32(v: i32) -> Option<Self> {
+        match v {
+            1 => Some(Self::Pressed),
+            0 => Some(Self::Released),
+            2 => Some(Self::Repeated),
+            _ => None,
+        }
+    }
+}
+impl FromStr for State {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim() {
+            "pressed" => Ok(Self::Pressed),
+            "released" => Ok(Self::Released),
+            "repeated" => Ok(Self::Repeated),
+            _ => Err(()),
+        }
+    }
+}
+impl Display for State {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Pressed => write!(f, "pressed"),
+            Self::Released => write!(f, "released"),
+            Self::Repeated => write!(f, "repeated"),
+        }
+    }
+}
+
 mod tests {
     #[allow(unused_imports)]
     use super::*;

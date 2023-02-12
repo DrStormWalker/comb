@@ -13,7 +13,7 @@ pub use events::DeviceEvent;
 pub use monitor::watch;
 use serde::{Deserialize, Serialize};
 
-use crate::input::Input;
+use crate::input::InputEvent;
 
 pub type DeviceId = String;
 
@@ -85,34 +85,34 @@ impl Debug for DeviceIdCombo {
 #[derive(Debug, Clone)]
 #[allow(unused)]
 pub struct DeviceInput {
-    time: SystemTime,
-    input: Input,
-    value: i32,
+    timestamp: SystemTime,
+    input_event: InputEvent,
     device: DeviceId,
 }
 impl DeviceInput {
-    pub fn input(&self) -> Input {
-        self.input
+    pub fn input_event(&self) -> InputEvent {
+        self.input_event
     }
 
-    pub fn value(&self) -> i32 {
-        self.value
+    pub fn device(&self) -> &str {
+        &self.device
     }
 }
 impl TryFrom<DeviceEvent> for DeviceInput {
     type Error = ();
 
-    fn try_from(value: DeviceEvent) -> Result<Self, Self::Error> {
-        let input = match value.kind() {
-            InputEventKind::Key(key) => key.into(),
+    fn try_from(event: DeviceEvent) -> Result<Self, Self::Error> {
+        let input_event = match event.kind() {
+            InputEventKind::Key(key) => {
+                InputEvent::try_from_raw_key(key, event.value()).ok_or(())?
+            }
             _ => return Err(()),
         };
 
         Ok(Self {
-            time: value.time(),
-            input,
-            value: value.value(),
-            device: value.device().to_string(),
+            timestamp: event.timestamp(),
+            input_event,
+            device: event.device().to_string(),
         })
     }
 }
@@ -130,15 +130,9 @@ pub fn open_devices(devices: &[DeviceAccessor]) -> Vec<DeviceIdCombo> {
 
     evdev::enumerate()
         .filter_map(|(_, device)| {
-            get_device_name_id(&device)
+            device_name_matches(&device, |name| names.contains(&name))
                 .map(|name| name.to_string())
-                .and_then(|name| {
-                    if names.contains(&name.trim()) {
-                        Some(DeviceIdCombo::new(name, device))
-                    } else {
-                        None
-                    }
-                })
+                .map(|name| DeviceIdCombo::new(name, device))
         })
         // Iterator::collect_into is unstable
         // (issue #94780 <https://github.com/rust-lang/rust/issues/94780>)
@@ -160,8 +154,16 @@ pub fn open_devices(devices: &[DeviceAccessor]) -> Vec<DeviceIdCombo> {
     opened_devices
 }
 
-fn get_device_name_id(device: &Device) -> Option<&str> {
-    device.unique_name().or_else(|| device.name())
+fn device_name_matches(device: &Device, mut predicate: impl FnMut(&str) -> bool) -> Option<&str> {
+    // let chains are unstable
+    // (issue #53667 https://github.com/rust-lang/rust/issues/53667)
+    if let Some(name) = device.name() && predicate(name) {
+        Some(name)
+    } else if let Some(name) = device.name() && predicate(name) {
+        Some(name)
+    } else {
+        None
+    }
 }
 
 pub fn path_in_devices<'a>(
@@ -174,9 +176,7 @@ pub fn path_in_devices<'a>(
             DeviceAccessor::Path(p) if p == path.as_ref() => return Some(accessor),
             // if let guards are unstable
             // (issue #51114 https://github.com/rust-lang/rust/issues/51114)
-            // let chains are unstable
-            // (issue #53667 https://github.com/rust-lang/rust/issues/53667)
-            DeviceAccessor::Name(name) if let Some(id) = get_device_name_id(&device) && id == &name[..] => {
+            DeviceAccessor::Name(name) if let Some(name) = device_name_matches(&device, |n| n == &name[..]) => {
                 return Some(accessor)
             }
             _ => {}

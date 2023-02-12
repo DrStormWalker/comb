@@ -3,7 +3,6 @@
 #![feature(if_let_guard)]
 #![feature(let_chains)]
 
-mod action;
 mod config;
 mod device;
 mod events;
@@ -11,14 +10,27 @@ mod input;
 mod mio_channel;
 mod thread;
 
+use std::process::{Command, Stdio};
+
 use device::{events::DeviceEventWatch, open_devices, path_in_devices, DeviceIdCombo};
 use evdev::Device;
 use events::{event_pipeline, Event};
 
-use crate::device::{DeviceAccessor, DeviceId};
+use crate::{
+    config::ActionType,
+    device::{DeviceAccessor, DeviceId},
+    input::State,
+};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (config_path, mut config) = config::load()?;
+
+    config
+        .devices
+        .iter_mut()
+        .for_each(|device| device.accessor = device.accessor.canonicalized());
+
+    println!("{:#?}", config);
 
     let (event_pipeline_sender, event_pipeline_receiver) = event_pipeline();
 
@@ -27,15 +39,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let device_event_watcher = DeviceEventWatch::new(event_pipeline_sender.clone())?;
 
-    // let xbox = DeviceAccessor::Name("Microsoft X-Box One S pad".to_string());
-    // let kb = DeviceAccessor::Path(PathBuf::from(
-    //     "/dev/input/by-id/usb-BY_Tech_Usb_Gaming_Keyboard-event-kbd",
-    // ));
-
     let mut accessors: Vec<DeviceAccessor> = config
         .devices
         .iter()
-        .map(|dev| dev.accessor.canonicalized())
+        .map(|dev| dev.accessor.clone())
         .collect();
 
     device_event_watcher.watch(open_devices(&accessors));
@@ -62,41 +69,69 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     continue;
                 };
 
-                println!("Config file reload.\nNew config:\n{:#?}", new_config);
-
                 config = new_config;
-                let new_accessors: Vec<DeviceAccessor> = config
+                config
                     .devices
-                    .iter()
-                    .map(|dev| dev.accessor.canonicalized())
-                    .collect();
+                    .iter_mut()
+                    .for_each(|device| device.accessor = device.accessor.canonicalized());
+
+                println!("Config file reload.\n{:#?}", config);
 
                 let removed: Vec<DeviceId> = accessors
                     .iter()
-                    .filter(|accessor| !new_accessors.contains(&accessor))
                     .map(|accessor| accessor.to_string())
                     .collect();
 
-                accessors = new_accessors;
-
                 device_event_watcher.unwatch(removed);
+
+                accessors = config
+                    .devices
+                    .iter()
+                    .map(|dev| dev.accessor.clone())
+                    .collect();
+
                 device_event_watcher.watch(open_devices(&accessors));
             }
             Event::DeviceEvent(_) => {}
             Event::DeviceInput(input) => {
-                if input.value() == 2 {
+                if input.input_event().state() == State::Repeated {
                     continue;
                 }
                 println!(
                     "{} {}",
-                    input.input(),
-                    match input.value() {
-                        0 => "released",
-                        1 => "pressed",
-                        2 => "repeated",
-                        _ => "",
-                    }
+                    input.input_event().input(),
+                    input.input_event().state(),
                 );
+
+                let Some(device_actions) = config.devices.iter().find(|dev| dev.accessor.to_string() == input.device()) else {
+                    continue;
+                };
+
+                let actions = device_actions.actions.iter().filter(|action| {
+                    if action.bind != input.input_event().input() {
+                        return false;
+                    }
+
+                    match action.action {
+                        ActionType::Hook { on, cmd: _ } => on == input.input_event().state(),
+                        ActionType::Print { on, other: _ } => on == input.input_event().state(),
+                        _ => true,
+                    }
+                });
+
+                for action in actions {
+                    match action.action {
+                        ActionType::Hook { on: _, ref cmd } => {
+                            let _ = Command::new("sh")
+                                .arg("-c")
+                                .arg(cmd)
+                                .stdin(Stdio::null())
+                                .stdout(Stdio::null())
+                                .spawn();
+                        }
+                        _ => unimplemented!(),
+                    }
+                }
             }
         }
     }

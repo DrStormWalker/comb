@@ -1,5 +1,6 @@
 mod device;
 mod monitor;
+mod util;
 
 use std::{
     fs::File,
@@ -11,7 +12,7 @@ pub use monitor::watch;
 use serde::{Deserialize, Serialize};
 use xdg::BaseDirectoriesError;
 
-use self::device::Device;
+pub use self::device::{Action, ActionType, Device};
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Config {
