@@ -1,7 +1,5 @@
 #![feature(file_create_new)]
-#![feature(iter_intersperse)]
 #![feature(iter_collect_into)]
-#![feature(if_let_guard)]
 
 mod action;
 mod config;
@@ -41,13 +39,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         open_devices(&[xbox, kb]),
     );
 
-    // let mut action_executor = ActionExecutor::new()?;
-
     while let Ok(event) = event_pipeline_receiver.recv() {
         match event {
-            Event::DeviceWatchEvent { added, removed } => {
-                // println!("Added devices: {:?}. Removed devices: {:?}", added, removed);
-
+            Event::DeviceWatchEvent { added, removed: _ } => {
                 let added = added
                     .into_iter()
                     .map(|path| {

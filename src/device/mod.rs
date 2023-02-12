@@ -127,6 +127,8 @@ pub fn open_devices(devices: &[DeviceAccessor]) -> Vec<DeviceIdCombo> {
                     }
                 })
         })
+        // Iterator::collect_into is unstable
+        // (issue #94780 <https://github.com/rust-lang/rust/issues/94780>)
         .collect_into(&mut opened_devices);
 
     devices
@@ -138,6 +140,8 @@ pub fn open_devices(devices: &[DeviceAccessor]) -> Vec<DeviceIdCombo> {
             )),
             _ => None,
         })
+        // Iterator::collect_into is unstable
+        // (issue #94780 <https://github.com/rust-lang/rust/issues/94780>)
         .collect_into(&mut opened_devices);
 
     opened_devices
