@@ -12,7 +12,7 @@
     rust-overlay.inputs.nixpkgs.follows = "nixpkgs";
   };
 
-  outputs = {
+  outputs = inputs @ {
     self,
     nixpkgs,
     flake-utils,
@@ -56,6 +56,8 @@
           cargo-expand
         ];
       };
+
+      nixosModules.default = import ./nix/module.nix inputs;
     }
   );
 }

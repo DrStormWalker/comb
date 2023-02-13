@@ -3,7 +3,7 @@
   craneLib,
   libiconv,
 }: craneLib.buildPackage {
-  src = craneLib.clearnCargoSource ../.;
+  src = craneLib.cleanCargoSource ../.;
 
   doCheck = true;
 
