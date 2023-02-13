@@ -8,11 +8,13 @@ inputs: {
 
   defaultCombPackage = inputs.self.packages.${pkgs.stdenv.hostPlatform.system}.default;
 
-  writeUdevRule = { name, rules }:
+  writeUdevRule =
     pkgs.writeTextFile {
-      name = "comb-udev-rule-" + name;
-      text = rules;
-      destination = "/lib/udev/rules.d/" + name + ".rules";
+      name = "comb-uinput-udev-rule";
+      text = ''
+        KERNEL=="uinput", GROUP="${cfg.uinputGroup}"
+      '';
+      destination = "/lib/udev/rules.d/85-comb-uinput.rules";
     };
 in {
   options.programs.comb = {
@@ -54,13 +56,6 @@ in {
 
   config = mkIf cfg.enable {
     environment.systemPackages = [ cfg.package ];
-    services.udev.packages = optionals cfg.udevRules [
-      writeUdevRule {
-        name = "85-comb-uinput";
-        rules = ''
-          KERNEL=="uinput", GROUP="${cfg.uinputGroup}"
-        '';
-      }
-    ];
+    services.udev.packages = mkIf cfg.udevRules [ writeUdevRule ];
   };
 }
