@@ -154,6 +154,10 @@ impl InputState {
             _ => None,
         }
     }
+
+    pub fn as_i32(&self) -> i32 {
+        *self as i32
+    }
 }
 impl FromStr for InputState {
     type Err = ();

@@ -85,8 +85,6 @@ impl State {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (config_path, config) = config::load()?;
 
-    println!("{:#?}", config);
-
     let (event_pipeline_sender, event_pipeline_receiver) = event_pipeline();
 
     let config_watch_handle = config::watch(event_pipeline_sender.clone(), config_path)?;
