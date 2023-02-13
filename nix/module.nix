@@ -54,11 +54,11 @@ in {
 
   config = mkIf cfg.enable {
     environment.systemPackages = [ cfg.package ];
-    services.udev.packages = mkIf cfg.udevRules [
+    services.udev.packages = optionals cfg.udevRules [
       writeUdevRule {
         name = "85-comb-uinput";
         rules = ''
-          KERNEL=="uinput"A, GROUP="${cfg.uinputGroup}"
+          KERNEL=="uinput", GROUP="${cfg.uinputGroup}"
         '';
       }
     ];
