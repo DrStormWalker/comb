@@ -57,5 +57,6 @@ in {
   config = mkIf cfg.enable {
     environment.systemPackages = [ cfg.package ];
     services.udev.packages = mkIf cfg.udevRules [ writeUdevRule ];
+    users.groups.${cfg.uinputGroup} = mkIf cfg.udevRules { };
   };
 }
