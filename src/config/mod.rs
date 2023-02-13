@@ -49,12 +49,17 @@ pub fn load() -> Result<(PathBuf, Config)> {
 
     config_file.read_to_string(&mut config)?;
 
-    let config = toml::from_str(&config).unwrap_or_else(|err| {
+    let mut config = toml::from_str(&config).unwrap_or_else(|err| {
         println!("Failed to load config file. Using default");
         println!("{}", err);
 
         Config::default()
     });
+
+    config
+        .devices
+        .iter_mut()
+        .for_each(|dev| dev.accessor = dev.accessor.canonicalized());
 
     Ok((config_path, config))
 }
@@ -66,7 +71,7 @@ pub fn reload(config_path: impl AsRef<Path>) -> Result<Option<Config>> {
 
     config_file.read_to_string(&mut config)?;
 
-    let config = match toml::from_str(&config) {
+    let mut config: Config = match toml::from_str(&config) {
         Ok(config) => config,
         Err(err) => {
             println!("Failed to load config file, using previous version.");
@@ -75,6 +80,11 @@ pub fn reload(config_path: impl AsRef<Path>) -> Result<Option<Config>> {
             return Ok(None);
         }
     };
+
+    config
+        .devices
+        .iter_mut()
+        .for_each(|dev| dev.accessor = dev.accessor.canonicalized());
 
     Ok(Some(config))
 }

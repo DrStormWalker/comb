@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     device::DeviceAccessor,
-    input::{Input, State},
+    input::{Input, InputState},
 };
 
 use super::util::display_from_str;
@@ -28,7 +28,7 @@ pub struct Action {
 pub enum ActionType {
     Hook {
         #[serde(default, with = "display_from_str")]
-        on: State,
+        on: InputState,
         cmd: String,
     },
     Bind {
@@ -37,7 +37,7 @@ pub enum ActionType {
     },
     Print {
         #[serde(default, with = "display_from_str")]
-        on: State,
-        other: String,
+        on: InputState,
+        print: String,
     },
 }

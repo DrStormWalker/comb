@@ -119,13 +119,13 @@ impl From<evdev::Key> for Input {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct InputEvent {
     input: Input,
-    state: State,
+    state: InputState,
 }
 impl InputEvent {
     pub fn try_from_raw_key(key: evdev::Key, value: i32) -> Option<Self> {
         Some(Self {
             input: key.into(),
-            state: State::from_i32(value)?,
+            state: InputState::from_i32(value)?,
         })
     }
 
@@ -133,19 +133,19 @@ impl InputEvent {
         self.input
     }
 
-    pub fn state(&self) -> State {
+    pub fn state(&self) -> InputState {
         self.state
     }
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Default)]
-pub enum State {
+pub enum InputState {
     #[default]
     Pressed = 1,
     Released = 0,
     Repeated = 2,
 }
-impl State {
+impl InputState {
     pub fn from_i32(v: i32) -> Option<Self> {
         match v {
             1 => Some(Self::Pressed),
@@ -155,7 +155,7 @@ impl State {
         }
     }
 }
-impl FromStr for State {
+impl FromStr for InputState {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -167,7 +167,7 @@ impl FromStr for State {
         }
     }
 }
-impl Display for State {
+impl Display for InputState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Pressed => write!(f, "pressed"),
