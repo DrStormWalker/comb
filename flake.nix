@@ -20,7 +20,7 @@
     rust-overlay,
     ...
   }:
-  flake-utils.lib.eachDefaultSystem (system:
+  flake-utils.lib.eachSystem ["aarch64-linux" "x86_64-linux"] (system:
     let
       pkgs = import nixpkgs {
         inherit system;
@@ -32,26 +32,18 @@
       rustToolchain = pkgs.rust-bin.nightly.latest.default;
 
       craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
-
-      comb = craneLib.buildPackage {
-        src = craneLib.cleanCargoSource ./.;
-
-        doCheck = false;
-
-        buildInputs = with pkgs; [
-
-        ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
-          pkgs.libiconv
-        ];
-      };
     in {
-      checks = {
-        inherit comb;
+      overlays.default = _: prev: {
+        comb = prev.callPackage ./nix/default.nix {
+          inherit craneLib;
+        };
       };
 
-      packages.default = comb;
-      packages.comb = comb;
-
+      packages = (self.overlays.${system}.default null pkgs)
+        // {
+          default = self.packages.${system}.comb;
+        };
+    
       devShells.default = pkgs.mkShell {
         inputsFrom = builtins.attrValues self.checks;
 
