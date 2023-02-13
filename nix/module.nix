@@ -12,7 +12,7 @@ inputs: {
     pkgs.writeTextFile {
       name = "comb-uinput-udev-rule";
       text = ''
-        KERNEL=="uinput", GROUP="${cfg.uinputGroup}"
+        SUBSYSTEM=="misc", KERNEL=="uinput", MODE="0660", GROUP="${cfg.uinputGroup}"
       '';
       destination = "/lib/udev/rules.d/85-comb-uinput.rules";
     };
@@ -47,7 +47,7 @@ in {
       type = types.str;
       default = "comb_uinput";
       defaultText = literalExpression "comb_uinput";
-      example = literalExpression "uinput_group";
+      example = literalExpression "uinput";
       description = ''
         The group to give access to /dev/uinput to.
       '';
