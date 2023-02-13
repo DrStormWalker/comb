@@ -2,6 +2,7 @@
   lib,
   craneLib,
   libiconv,
+  stdenv,
 }: craneLib.buildPackage {
   src = craneLib.cleanCargoSource ../.;
 
@@ -10,5 +11,5 @@
   buildInputs = [
     
   ]
-  ++ lib.optionals lib.stdenv.isDarwin [ libiconv ];
+  ++ lib.optionals stdenv.isDarwin [ libiconv ];
 }
