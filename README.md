@@ -15,9 +15,9 @@ access to the evdev devices.
 
 - [X] Watch config file for changes
 - [X] Watch for added/removed devices
-- [ ] Button/Keyboard key inputs
+- [X] Button/Keyboard key inputs
   - [ ] Map to virtual device input
-  - [ ] Run script
+  - [X] Run script
   - [ ] Modifier keys
 - [ ] Joystick inputs
   - [ ] Map to different joystick
