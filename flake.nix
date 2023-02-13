@@ -45,8 +45,6 @@
         };
     
       devShells.default = pkgs.mkShell {
-        inputsFrom = builtins.attrValues self.checks;
-
         nativeBuildInputs = with pkgs; [
           rustToolchain
 
