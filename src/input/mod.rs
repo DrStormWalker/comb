@@ -1,9 +1,10 @@
+mod axis;
 mod btn;
 mod key;
 
 use std::{fmt::Display, str::FromStr};
 
-pub use self::{btn::Btn, key::Key};
+pub use self::{axis::*, btn::Btn, key::Key};
 
 #[macro_export(local_inner_macros)]
 macro_rules! __input_enum_internal {
@@ -78,6 +79,18 @@ macro_rules! input_enum {
 pub enum Input {
     Key(Key),
     Btn(Btn),
+    RelAxis(RelAxis),
+    AbsAxis(AbsAxis),
+}
+impl Input {
+    pub fn is_toggle(&self) -> bool {
+        match self {
+            Self::Key(_) => true,
+            Self::Btn(_) => true,
+            Self::RelAxis(_) => false,
+            Self::AbsAxis(_) => false,
+        }
+    }
 }
 impl FromStr for Input {
     type Err = ();
@@ -90,6 +103,8 @@ impl FromStr for Input {
         match prefix {
             "key" => Ok(Self::Key(field.parse()?)),
             "btn" => Ok(Self::Btn(field.parse()?)),
+            "rel_axis" => Ok(Self::RelAxis(field.parse()?)),
+            "abs_axis" => Ok(Self::AbsAxis(field.parse()?)),
             _ => Err(()),
         }
     }
@@ -99,6 +114,8 @@ impl Display for Input {
         match self {
             Self::Key(key) => write!(f, "key:{}", key),
             Self::Btn(btn) => write!(f, "btn:{}", btn),
+            Self::RelAxis(axis) => write!(f, "rel_axis:{}", axis),
+            Self::AbsAxis(axis) => write!(f, "abs_axis:{}", axis),
         }
     }
 }
@@ -117,24 +134,49 @@ impl From<evdev::Key> for Input {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct InputEvent {
-    input: Input,
-    state: InputState,
+pub enum InputEvent {
+    Key(Key, InputState),
+    Btn(Btn, InputState),
+    RelAxis(RelAxis, i32),
+    AbsAxis(AbsAxis, i32),
 }
 impl InputEvent {
     pub fn try_from_raw_key(key: evdev::Key, value: i32) -> Option<Self> {
-        Some(Self {
-            input: key.into(),
-            state: InputState::from_i32(value)?,
-        })
+        if let Ok(key) = key.try_into() {
+            return Some(Self::Key(key, InputState::from_i32(value)?));
+        }
+
+        if let Ok(btn) = key.try_into() {
+            return Some(Self::Btn(btn, InputState::from_i32(value)?));
+        }
+
+        unreachable!();
+    }
+
+    pub fn try_from_raw_rel_axis(axis: evdev::RelativeAxisType, value: i32) -> Option<Self> {
+        Some(Self::RelAxis(axis.try_into().ok()?, value))
+    }
+
+    pub fn try_from_raw_abs_axis(axis: evdev::AbsoluteAxisType, value: i32) -> Option<Self> {
+        Some(Self::AbsAxis(axis.try_into().ok()?, value))
     }
 
     pub fn input(&self) -> Input {
-        self.input
+        match self {
+            Self::Key(key, _) => Input::Key(*key),
+            Self::Btn(btn, _) => Input::Btn(*btn),
+            Self::RelAxis(axis, _) => Input::RelAxis(*axis),
+            Self::AbsAxis(axis, _) => Input::AbsAxis(*axis),
+        }
     }
 
-    pub fn state(&self) -> InputState {
-        self.state
+    pub fn state(&self) -> i32 {
+        match self {
+            Self::Key(_, state) => state.as_i32(),
+            Self::Btn(_, state) => state.as_i32(),
+            Self::RelAxis(_, state) => *state,
+            Self::AbsAxis(_, state) => *state,
+        }
     }
 }
 

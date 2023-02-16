@@ -106,6 +106,12 @@ impl TryFrom<DeviceEvent> for DeviceInput {
             InputEventKind::Key(key) => {
                 InputEvent::try_from_raw_key(key, event.value()).ok_or(())?
             }
+            InputEventKind::RelAxis(axis) => {
+                InputEvent::try_from_raw_rel_axis(axis, event.value()).ok_or(())?
+            }
+            InputEventKind::AbsAxis(axis) => {
+                InputEvent::try_from_raw_abs_axis(axis, event.value()).ok_or(())?
+            }
             _ => return Err(()),
         };
 

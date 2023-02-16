@@ -12,7 +12,7 @@ pub use monitor::watch;
 use serde::{Deserialize, Serialize};
 use xdg::BaseDirectoriesError;
 
-pub use self::device::{Action, ActionType, Device};
+pub use self::device::*;
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Config {
