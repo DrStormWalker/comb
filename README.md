@@ -19,10 +19,10 @@ access to the evdev devices.
   - [X] Map to virtual device input
   - [X] Run script
   - [ ] Modifier keys
-- [ ] Joystick inputs
-  - [ ] Map to different joystick
-  - [ ] Interpret as keypress
-  - [ ] Run script
+- [X] Joystick inputs
+  - [X] Map to different joystick
+  - [X] Interpret as keypress
+  - [X] Run script
 - [ ] Human readable errors and warnings
 - [ ] Grab input device
 - [ ] Multiple Virtual input devices
