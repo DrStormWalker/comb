@@ -55,6 +55,14 @@ nix build "github:DrStormWalker/comb#comb"
 
 ## Configuration
 
+CoMB can be configured through the configuration file at `~/.config/comb/config.toml`.
+
+Alternatively if `$XDG_CONFIG_HOME` is defined then CoMB can be configured throught the
+file `$XDG_CONFIG_HOME/comb/config.toml`. If the config file cannot be found at any of
+the places above `$XDG_CONFIG_DIRS` will be searched. If the file is not
+found in any of these locations a new config file will be created at
+`$XDG_CONFIG_HOME/comb/config.toml` or `~/.config/comb/config.toml`.
+
 ### Sample Configuration file
 
 ```toml
