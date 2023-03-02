@@ -173,7 +173,8 @@ impl ActionExecutor {
             .arg(cmd)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .spawn();
+            .spawn()
+            .unwrap();
     }
 
     fn execute_print(_print: &str) {
