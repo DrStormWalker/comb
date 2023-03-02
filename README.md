@@ -61,7 +61,7 @@ nix build "github:DrStormWalker/comb#comb"
 [[devices]]
 name = "8BitDo Zero 2 gamepad"
 
-[[devices]
+[[devices]]
 path = "/dev/input/event25"
 
 [[devices.actions]]
