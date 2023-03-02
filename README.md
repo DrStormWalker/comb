@@ -55,7 +55,42 @@ nix build "github:DrStormWalker/comb#comb"
 
 ## Configuration
 
-TODO
+### Sample Configuration file
+
+```toml
+[[devices]]
+name = "8BitDo Zero 2 gamepad"
+
+[[devices]
+path = "/dev/input/event25"
+
+[[devices.actions]]
+bind = "btn:z"
+to = "key:leftmeta"
+
+[[devices.actions]]
+bind = "key:z"
+to = "key:leftmeta"
+
+[[devices.actions]]
+bind = "key:p"
+cmd = "swaylock"
+
+[[devices.actions]]
+bind = "key:r"
+cmd = "swaylock"
+when = "released"
+
+[[devices.actions]]
+bind = "abs_axis:y"
+to = "key:down"
+when = ">32768"
+
+[[devices.actions]]
+bind = "abs_axis:y"
+to = "key:up"
+when = "<32768"
+```
 
 ## Platforms
 
